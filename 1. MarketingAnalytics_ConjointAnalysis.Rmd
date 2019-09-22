@@ -1,0 +1,427 @@
+---
+title: "Marketing Analytics Project 1 - Conjoint Analysis (Survey Analytics)"
+output:
+  html_document:
+    df_print: paged
+  pdf_document: default
+---
+
+### Reading the Fashion Data
+
+```{r}
+#Loading Data
+data <- read.delim("/Users/Monu/Desktop/Marketing Analytics/A2/fashiondata.txt", header = TRUE, sep = " ", dec = ",")
+
+#Creating Person ID 
+b<-c()
+for (i in 1:400){
+  a <- rep(i,8)
+  b <- c(b,a) 
+}
+data$Person_ID <- b
+
+#Viewing Data
+data[1:16,]
+```
+
+Setting Up the design matrix (effects coded).
+
+```{r}
+#Creating Design Mat
+dat_des <- data[,-5:-6]
+dat_des <- dat_des[1:8,2:4]
+dat_des
+
+#Creating Effects Coding
+des.mm <- model.matrix(~FASHION+QUALITY+PRICE,data=dat_des,contrasts.arg=list(FASHION=contr.sum,QUALITY=contr.sum,PRICE=contr.sum))
+des.mm <- des.mm[,2:4]
+des.mm
+cor(des.mm)
+```
+
+Data Frame with all data and effects-coded variables. 
+
+```{r}
+data_ef <- cbind(data[data$Person_ID==1,c(1,7)],des.mm)
+
+for(i in 2:400){
+pp_temp <- cbind(data[data$Person_ID==i,c(1,7)],des.mm)
+data_ef <- rbind(data_ef,pp_temp)
+}
+
+data_ef <- data.frame(data_ef)
+names(data_ef) <- c( "RATING","PERSON_ID","FASHION1","QUALITY1","PRICE1")
+
+data_ef[1:16,]
+dim(data_ef)
+```
+
+## 1. Parthworth estimation for all individuals separately.
+
+```{r}
+
+####Initializing the Data for First Person 
+##Train and Test
+trainIND_per_person_ <- sample(seq_len(8), size = 6)
+train_pp <- data_ef[data_ef$PERSON_ID==1,][trainIND_per_person_,]
+test_pp <- data_ef[data_ef$PERSON_ID==1,][-trainIND_per_person_,]
+
+##Individual Model Per Person 
+model_pp <- lm(RATING~FASHION1+QUALITY1+PRICE1,data=train_pp)
+model_data <- data.frame(model_pp$coefficients)
+
+#Predicting Train and Test
+train_pred_pp <- predict(model_pp)
+test_pred_pp <- predict(model_pp,test_pp)
+
+all_data <- rbind(cbind(train_pp,indv.pred=train_pred_pp,split=c(rep('train'))),cbind(test_pp,indv.pred=test_pred_pp,split=c(rep('test'))))
+
+####For Loop for Each Person after First Person 
+##Train and Test
+for(i in 2:400){
+trainIND_per_person_ <- sample(seq_len(8), size = 6)
+train_pp <- data_ef[data_ef$PERSON_ID==i,][trainIND_per_person_,]
+test_pp <- data_ef[data_ef$PERSON_ID==i,][-trainIND_per_person_,]
+
+##Individual Model Per Person 
+model_pp <- lm(RATING~FASHION1+QUALITY1+PRICE1,data=train_pp)
+coef_pp <- data.frame(model_pp$coefficients)
+
+#Predicting Train and Test
+train_pred_pp <- predict(model_pp)
+test_pred_pp <- predict(model_pp,test_pp)
+
+#Creating Per Person Data
+per_person <- rbind(cbind(train_pp,indv.pred=train_pred_pp,split=c(rep('train'))),cbind(test_pp,indv.pred=test_pred_pp,split=c(rep('test'))))
+
+#Appending to All Data
+all_data <- rbind(all_data,per_person)
+model_data <- cbind(model_data,coef_pp)
+}
+```
+
+
+Data Frame with Coeffcients from all 400 Individual Models. 
+
+```{r}
+model_data[,1:5]
+dim(model_data)
+```
+
+Data Frame with all data including predictions for test and train profiles.
+
+```{r}
+all_data[1:16,]
+dim(all_data)
+```
+
+Evaluating Model Performance
+
+```{r}
+ind_model_perf <-  cbind(train_performance=(cor(all_data[all_data$split=='train',]$RATING,all_data[all_data$split=='train',]$indv.pred))^2,test_performance=(cor(all_data[all_data$split=='test',]$RATING,all_data[all_data$split=='test',]$indv.pred))^2)
+
+ind_model_perf
+```
+
+## 2. Parthworth estimation by combining all individual responses into an aggregate. 
+
+```{r}
+agg_model_train <- all_data[all_data$split=='train',c('RATING','FASHION1','QUALITY1','PRICE1')]
+dim(agg_model_train)
+
+agg_model_test <- all_data[all_data$split=='test',c('RATING','FASHION1','QUALITY1','PRICE1')]
+dim(agg_model_test)
+
+#Fitting the Model 
+agg_model <- lm(RATING~FASHION1+QUALITY1+PRICE1,data=agg_model_train)
+summary(agg_model)
+
+#Predicting on Train and Test Set
+agg_pred_train <- predict(agg_model)
+agg_pred_test <- predict(agg_model,agg_model_test)
+```
+
+Evaluating Model Performance
+
+```{r}
+agg_model_perf <- cbind(
+train_performance = (cor(agg_model_train$RATING,agg_pred_train))^2,
+test_performance = (cor(agg_model_test$RATING,agg_pred_test))^2
+)
+
+agg_model_perf
+```
+
+## 3. Parthworth estimation by using linear mixed models.
+In this case you should treat each individual as a seperate group for defining the random effects.
+
+```{r}
+require(lme4)
+
+#Train and Test Datasets
+mixed_model_train <- all_data[all_data$split=='train',c('RATING','FASHION1','QUALITY1','PRICE1','PERSON_ID')]
+dim(mixed_model_train)
+
+mixed_model_test <- all_data[all_data$split=='test',c('RATING','FASHION1','QUALITY1','PRICE1','PERSON_ID')]
+dim(mixed_model_test)
+
+#Fitting Mixed Model using lmer
+mixed_model <- lmer(RATING~FASHION1+QUALITY1+PRICE1+(1+FASHION1+QUALITY1+PRICE1|PERSON_ID),  control=lmerControl(optCtrl = list(maxfun=100000)), data=mixed_model_train)
+summary(mixed_model)
+
+#Predicting on Train and Test Set
+mixed_pred_train <- predict(mixed_model)
+mixed_pred_test <- predict(mixed_model,mixed_model_test)
+```
+
+```{r}
+#Fixed Effects
+fixef(mixed_model)
+
+#Random Effects for each Individual 
+head(ranef(mixed_model)$PERSON_ID)
+
+#Final Coeffcieints (Fixed + Random Effects)
+head(coef(mixed_model)$PERSON_ID)
+```
+
+Evaluating Model Performance 
+```{r}
+mixed_model_perf <- cbind(
+train_performance = (cor(mixed_model_train$RATING,mixed_pred_train))^2,
+test_performance = (cor(mixed_model_test$RATING,mixed_pred_test))^2
+)
+
+mixed_model_perf
+```
+
+## 4. Partworth estimation of the mixed effects models by using MCMChregress 
+
+```{r}
+require(MCMCpack)
+
+set.seed(1)
+mc_model=MCMChregress(fixed=RATING~FASHION1+QUALITY1+PRICE1,
+                      random =~1+FASHION1+QUALITY1+PRICE1, 
+                      group="PERSON_ID", 
+                      r=4,
+                      R=4*diag(4), 
+                      data=mixed_model_train)
+```
+
+```{r}
+#summary(mc_model$mcmc)
+dim(mc_model$mcmc)
+```
+
+
+```{r}
+##Getting MCMC Model Fixed and Random Coefs Means
+
+#Taking only the last 500 rows to avoid taking the mean from the samples in the first half of MCMC process 
+mc_coef_samples <- mc_model$mcmc[501:1000,1:1604]
+
+#Getting Mean of Each Sample 
+mc_coef_samples_mean <- apply(mc_coef_samples,2,mean)
+
+#Fixed Coef Mean and Random Coef Means
+fixed_mean_values <- mc_coef_samples_mean[1:4]
+random_mean_values <- mc_coef_samples_mean[5:1604]
+
+#intercept coefcieints per individual
+int_coef <- random_mean_values[1:400]
+int_coef <- int_coef + fixed_mean_values[1]
+names(int_coef) <- substr(names(random_mean_values[1:400]),15,18)
+
+#fashion coefcieints per individual
+fash_coef <- random_mean_values[401:800]
+fash_coef <- fash_coef + fixed_mean_values[2]
+names(fash_coef) <- substr(names(random_mean_values[1:400]),15,18)
+
+#quality coefcieints per individual
+qual_coef <- random_mean_values[801:1200]
+qual_coef <- qual_coef + fixed_mean_values[3]
+names(qual_coef) <- substr(names(random_mean_values[1:400]),15,18)
+
+#price coefcieints per individual
+price_coef <- random_mean_values[1201:1600]
+price_coef <- price_coef + fixed_mean_values[4]
+names(price_coef) <- substr(names(random_mean_values[1:400]),15,18)
+```
+
+
+```{r}
+#Manually Calculating MCMC Predicted Values on Test Set
+
+#initializing for person 1
+#formula for calculating the predicted value
+value <- int_coef[names(int_coef)==1]+mixed_model_test[mixed_model_test$PERSON_ID==1,'FASHION1']*fash_coef[names(fash_coef)==1]+mixed_model_test[mixed_model_test$PERSON_ID==1,'QUALITY1']*qual_coef[names(qual_coef)==1]+mixed_model_test[mixed_model_test$PERSON_ID==1,'PRICE1']*price_coef[names(price_coef)==1]
+
+mcmc_test_pred <- cbind(rating=mixed_model_test[mixed_model_test$PERSON_ID==1,'RATING'],mcmc.pred=value)
+
+#for loop for rest of the individuals after the first person 
+for(i in 2:400){
+value_pp <- int_coef[names(int_coef)==i]+mixed_model_test[mixed_model_test$PERSON_ID==i,'FASHION1']*fash_coef[names(fash_coef)==i]+mixed_model_test[mixed_model_test$PERSON_ID==i,'QUALITY1']*qual_coef[names(qual_coef)==i]+mixed_model_test[mixed_model_test$PERSON_ID==i,'PRICE1']*price_coef[names(price_coef)==i]
+
+temp_pp <- cbind(rating=mixed_model_test[mixed_model_test$PERSON_ID==i,'RATING'],mcmc.pred=value_pp)
+
+mcmc_test_pred <- rbind(mcmc_test_pred,temp_pp)
+}
+```
+
+```{r}
+head(mcmc_test_pred)
+dim(mcmc_test_pred)
+```
+
+Evaluating Model Performance
+
+```{r}
+mcmc_model_perf<-cbind(
+train_performance=cor(mixed_model_train$RATING,mc_model$Y.pred)^2,
+test_performance=cor(mcmc_test_pred[,1],mcmc_test_pred[,2])^2)
+
+mcmc_model_perf
+```
+
+
+## 5. Assess performance of 1-4 using 2 profiles as "Holdout" profiles for each 
+
+Below the test performance shows how the hold-out profiles did for each type of model.
+
+```{r}
+model_perf_summary <- rbind(
+ind_model_perf,
+agg_model_perf,
+mixed_model_perf,
+mcmc_model_perf
+)
+
+rownames(model_perf_summary) <- c("Individual Models R-Squared","Aggregate Models R-Squared","Mixed Models R-Squared","MCMC Models R-Squared")
+
+model_perf_summary
+```
+
+The Mixed Model had the highest R-Squared on the hold-out (test) set. Mixed Model will be used for clustering of the individual's parthworths in step 6. 
+
+# 6. Applying K-Means Clustering to the Partworths from the Best Performing Model
+
+```{r}
+#Loading all Clustering Packages
+require('fpc')
+require('factoextra')
+require('cluster')
+require('FunCluster')
+```
+
+
+```{r}
+#Getting the coefficients from Mixed Model 
+mixed_model_coef <- coef(mixed_model)$PERSON_ID
+
+#Scaling the coefficient values
+mixed_model_coef <- scale(mixed_model_coef)
+```
+
+Determining what the optimal number of cluster should be with the elbow method.
+
+```{r}
+fviz_nbclust(mixed_model_coef,FUNcluster = kmeans,method='wss')
+```
+
+Applying t-SNE to further visualize the clusters
+
+```{r}
+require('Rtsne')
+tsne_model <- Rtsne(as.matrix(mixed_model_coef), check_duplicates=FALSE, pca=TRUE, perplexity=100, theta=0.5, dims=2)
+d_tsne_1 = as.data.frame(tsne_model$Y)  
+```
+
+```{r}
+## Plotting the Results without Clustering
+ggplot(d_tsne_1, aes(x=V1, y=V2)) +  
+  geom_point(size=0.25) +
+  guides(colour=guide_legend(override.aes=list(size=6))) +
+  xlab("") + ylab("") +
+  ggtitle("t-SNE") +
+  theme_light(base_size=20) +
+  theme(axis.text.x=element_blank(),
+        axis.text.y=element_blank()) +
+  scale_colour_brewer(palette = "Set2")
+```
+
+Based on these findings, 3 clusters will be fit to the model. 
+
+#### Fitting K-Means with 3 Clusters
+
+```{r}
+clust <- kmeans(mixed_model_coef,3,iter.max = 20)
+```
+
+Visualizing the Clusters
+
+```{r}
+plotcluster(mixed_model_coef, clust$cluster)
+```
+
+According to the data, these three segments can be used as the benefit segments for the fashion product. 
+
+```{r}
+require(dplyr)
+row_ind <- seq(1,3200,8)
+
+cluster_mat <- cbind(coef(mixed_model)$PERSON_ID,clusters = clust$cluster,data[row_ind,c('GENDER','AGE')])
+
+names(cluster_mat) <- c('int','fash','qual','price','clusters','gender','age')
+
+head(cluster_mat)
+```
+
+
+```{r}
+#Mean Values of Coeffcients for each Cluster
+cluster_mat %>% group_by(clusters) %>% summarise(int = mean(int),
+                                                 fash=mean(fash),
+                                                 qual=mean(qual),
+                                                 price=mean(price))
+
+```
+
+Fashion: 
+Clusters 2 and 3 prefer modern fashion (higher change in preference from Traditional to Modern) more than cluster 1. Cluster 3 prefers modern fashion the most. 
+
+Quality: 
+Cluster 1 is the most sensitive to high quality, and has the highest mean coefficient for high quality. Clusters 2 and 3 are less sensitive about high quality. Cluster 3 has the lowest quality mean coefficient indicating that there is no additional perceived value of high quality for cluster 3. 
+
+Price:
+Cluster 3 is slightly more sensitive to higher prices than clusters 1 and 2. 
+
+
+```{r}
+cluster_mat %>% group_by(clusters,age) %>% summarise(n=n())
+```
+
+Age Breakdown: 
+Cluster 1 - mostly 40+ individuals 
+
+Cluster 2 - mostly younger (16-39) individuals 
+
+Cluster 3 - primarily younger individuals with 16-24 
+
+```{r}
+cluster_mat %>% group_by(clusters,gender) %>% summarise(n=n())
+```
+
+Gender Breakdown: 
+
+Cluster 1 and 2 - Mix of Male and Female 
+
+Cluster 3 - Mostly Female 
+
+*In summary, here are the three broad segments:* 
+
+Segment 1 - Older Individuals with High Quality Purchases - Care the most about high quality and prefer modern fashion the least (traditional fashion and modern fashion don't have high preference differences). The majority of them are 40+. 
+
+Segment 2 - Modern, Fashion-Forward Young Professionals - Prefer Modern Fashion and care less about high quality - they are also mostly younger individuals (16-24) and some older professionals (24 - 39 or 40+). 
+
+Segment 3 - Students / Younger Indiviudals [Mostly Female] - Most price sensitive, prefer modern fashion to  to traditional fashion the most, and care the least about high quality. The majority of them are younger individuals (16-24) and females. 

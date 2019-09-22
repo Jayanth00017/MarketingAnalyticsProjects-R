@@ -1,0 +1,427 @@
+---
+title: "Marketing Analytics Project 2 - Establising a Relationshop between Brand Attribute Ratings and Preference Ratings"
+output:
+  html_document:
+    df_print: paged
+---
+**Assignment 4** 
+
+Build a model to establish a relationship between Brand Attribute Ratings and Preference ratings (Likely to Consider) variable in the Brand Strategy Data that was collected by a Business Credit Card marketing company. The choice of modeling methodology is left to you. Missing values have been coded as -99 in the data.
+
+Your options might be:
+
+1. You might choose to treat it as a statistical model building methodology and develop models based on the original ratings. 
+
+2. Or you may decide that attribute ratings questions have a lot of noise (error in measurement since they are all questionnaire based interval scale measurements) and resort to first conducting principal components/factor analysis, and then using these component/factor scores to build a model to predict preference. 
+
+3. Or you may decide to build a model using structural equation modeling methodology.
+
+**Data Dictionary**
+
+Variable -99 is missing brand information for person
+
+respid	respondent id
+
+hq_cell	Revenue groups: 1- LT 100k, 2 - 100 - 250 K, 3- between 250 and 2,0MM
+
+brandid	brands
+	1. Advanta
+	2. Amex
+	3. Bank of America
+	4. Chase
+	5. Citibank
+	6. HSBC
+	7. Wells Fargo
+	8. Other Primary
+	9. Other Secondary
+	
+origbrand	same as brand id except for 8 and 9:  8 and 9 has original brand id
+
+pri_sec	Primary/Secondary flag: 1 - Primary, 2- Secondary, 0- otherwise
+
+q6	Competitive Preference :  1 - Storngly Prefer Primary, 11 Strongly Prefer Secondary
+	Note:  respondent has same q6 value for all records
+	
+consider	Likely to conisder/continue to use:  1: Defenitely would not consider,  11  Defenitely consider, 12 DK
+
+Ratings	1 - low, 2 medium 3 high 4 DK:
+att_rating1	Provides easy access to my accounts 
+att_rating2	Offers access to my accounts through multiple channels: phone, branch, internet
+att_rating3	Has the financial products I need for my business
+att_rating4	Helps me manage the cash flow of my business
+att_rating5	Is cool - Image
+att_rating6	Is an emerging Leader
+att_rating7	Is innovative
+att_rating8	Provides personalized service
+att_rating9	Is trustworthy
+att_rating10	Is responsive to my business needs
+att_rating11	Is an advisor to my business
+att_rating12	Understands my business needs
+att_rating13	Helps solve my business problems
+att_rating14	Looks out for my best interests
+att_rating15	Is a prestigious company
+att_rating16	Makes me feel like a valued customer
+att_rating17	Recognizes me as a person and as a business
+att_rating18	Rewards me for being a good customer
+att_rating19	Provides rewards programs best suited for my business
+att_rating20	Offers an easy application process
+att_rating21	Provides excellent customer service
+att_rating22	Makes it easy to get financing for my business
+att_rating23	Communications are straight forward and clear
+att_rating24	Provides security for my account information
+att_rating25	Makes my life easier
+att_rating26	Makes it easy to invest in my business
+att_rating27	Offers a quick application approval process
+att_rating28	Has reasonable fees
+att_rating29	Offers the best rates on its products
+att_rating30	Treats me fairly
+att_rating31	Provides a good value
+
+## 1. Data Cleaning and Exploration 
+
+```{r}
+data <- read.csv("/Users/Monu/Desktop/Marketing Analytics/A4/a4data.csv", header = TRUE, sep = ",", dec = ",")
+head(data)
+```
+
+```{r}
+#Understanding the Consider Ratings
+summary(factor(data$consider))
+```
+
+
+```{r}
+### Strongly Prefer Primary --------- Strongly Prefer Secondary
+summary(factor(data$q6))
+```
+
+
+```{r}
+#Understanding the Data
+summary(apply(data[,c('hq_cell','origbrand','pri_sec','q6')],2,factor))
+```
+
+```{r}
+#Understanding All Attribute Ratings
+summary(apply(data[,8:38],2,factor))
+```
+
+It appears that when a brand is not a primary, secondary, or otherwise preferred by the customer, the customer doesn't leave a response for the brand. This can be inferred because the same 2,567 rows are missing in the attribute questions and the same number of rows are missing in the pri_sec column. 
+
+#### Dealing with Missing Data 
+
+**Consider (Not Likely to Likely):** The reason the missing values from this column were dropped is because this column represent a measure of a user's preferences, and it is very difficult to correctly impute a person's preference for a particular brand based on the individual's responses to other brands. 
+
+The "Don't Know" Responses (12) - these were also removed because they don't provide any information about the person's preference for the brand. 
+
+**31 Attribute Questions:** Similarly, the missing values from these 31 attribute questions were dropped because responses to these questions also capture an individual's perception or response to a specific brand and it would be incorrect to impute this value based on the same individual's perception to a different brand. 
+
+```{r}
+#Removing rows with -99 (missing data) in Consider and 31 Attribute columns 
+clean_data <- data[data$consider>0 & data$att_rating1>0,]
+clean_data <- clean_data[!clean_data$consider==12,]
+```
+
+#### Identifying Additional Categorical Variables
+
+Since all the columns shown below are categorical - they will be turned into categorical (factor) variables. 
+
+```{r}
+clean_data[,1:6] <- lapply(clean_data[,1:6],as.factor)
+summary(clean_data[,1:6])
+```
+
+**Correlation Matrix** 
+
+To see which attributes have the highest correlation and to see multicolinearity present in the data, a correlation plot will be created. 
+
+```{r}
+require("corrplot")
+require('RColorBrewer')
+require('GGally')
+require(ggplot2)
+
+ggcorr(clean_data[,8:38],geom = "circle", nbreaks = 5,label = TRUE,label_size = 2, label_color = "white", hjust = 0.75, size = 3, color = "grey50",palette = "RdYlBu")
+```
+
+As seen, there is a significant amount of colinearity present in the data. 
+
+## 2. Structural Equation Model 
+
+### Attempt 1 - Using all the variables
+
+Identifying Latent Variables:  
+
+**"Access and Ease":** 
+- att_rating1	Provides easy access to my accounts 
+- att_rating2	Offers access to my accounts through multiple channels: phone, branch, internet
+- att_rating20	Offers an easy application process
+- att_rating25	Makes my life easier
+- att_rating27	Offers a quick application approval process
+- att_rating23	Communications are straight forward and clear
+- att_rating24	Provides security for my account information
+
+**"Business-Friendly":**
+- att_rating3	Has the financial products I need for my business
+- att_rating4	Helps me manage the cash flow of my business
+- att_rating10	Is responsive to my business needs
+- att_rating11	Is an advisor to my business
+- att_rating12	Understands my business needs
+- att_rating13	Helps solve my business problems
+- att_rating19	Provides rewards programs best suited for my business
+- att_rating22	Makes it easy to get financing for my business
+- att_rating26	Makes it easy to invest in my business
+
+**"Perceived Image":**
+- att_rating5	Is cool - Image
+- att_rating6	Is an emerging Leader
+- att_rating7	Is innovative
+- att_rating15	Is a prestigious company
+- att_rating9	Is trustworthy
+
+**"Care and Customer Service":**
+- att_rating8	Provides personalized service
+- att_rating14	Looks out for my best interests
+- att_rating16	Makes me feel like a valued customer
+- att_rating17	Recognizes me as a person and as a business
+- att_rating18	Rewards me for being a good customer
+- att_rating21	Provides excellent customer service
+- att_rating30	Treats me fairly
+
+**"Pricing":**
+- att_rating28	Has reasonable fees
+- att_rating29	Offers the best rates on its products
+- att_rating31	Provides a good value
+
+
+```{r}
+require(lavaan)
+
+myModel <- '   # regressions
+                consider ~ access + business_needs + image + customer_service + price
+
+               # latent variable definitions 
+
+                access =~ att_rating1 + att_rating2 + att_rating20	+ att_rating25 + att_rating27  +                  att_rating23 + att_rating24
+
+                business_needs =~ att_rating3 + att_rating4 + att_rating10 + att_rating11 +                           att_rating12 + att_rating13 + att_rating19 + att_rating22 + att_rating26
+               
+                image =~ att_rating5 + att_rating6 + att_rating7 + att_rating15 + att_rating9
+
+                customer_service =~ att_rating8 + att_rating14 + att_rating16 + att_rating17 +                        att_rating18 + att_rating21 + att_rating30
+
+                price =~ att_rating28 + att_rating29 + att_rating31
+
+               # variances and covariances'
+                
+```
+
+Since the responses to the individual questions are - Low, Medium, High, and Don't Know - I will consider those as discrete, categorical variables because these variables don't necessarily represent a scale that can be applied to all respondents - for example, for one respondent the perceived difference between low and medium might be different than another respondent. Thus, I will factorize all the 31 survey questions. Since there is an order to these levels I will retain that order as I factor the variables (order: 3 > 2 > 1). I am also excluding '4' here because it implies a 'don't know' which we can't accurately be use for modeling preference.   
+
+```{r}
+#Preparing the data for the model
+model_data <- cbind(consider=clean_data[,7],clean_data[,8:38])
+
+model_data[2:32] <- lapply(model_data[2:32],function (x) ordered(x,c('1','2','3'),exclude=4))
+
+head(model_data)
+```
+
+```{r}
+#Fitting the model and viewing the summary
+fit <- sem(myModel,
+           data=model_data)
+
+summary(fit)
+```
+
+```{r}
+#Viewing fit statistics 
+fitMeasures(fit) 
+```
+
+As we can see here, P-value (Chi-square) is close to 0, which implies that this model rejects the null hypothesis that model itself is at least as good the saturated model. This is expected because a lot of the variables have high correlations. 
+
+In the next iteration, I will try to decrease the number of variables I input into the model and see if that improves the Chi-square P-value. 
+
+### Attempt 2 - Fitting the Model with Fewer Parameters
+
+**"Image":** 
+- att_rating9	Is trustworthy
+- att_rating6	Is an emerging Leader
+- att_rating15	Is a prestigious company
+
+**"Value":**
+- att_rating10	Is responsive to my business needs
+- att_rating11	Is an advisor to my business
+- att_rating12	Understands my business needs
+- att_rating13	Helps solve my business problems
+- att_rating3	Has the financial products I need for my business
+- att_rating21	Provides excellent customer service
+- att_rating30	Treats me fairly
+- att_rating31	Provides a good value
+
+
+```{r}
+require(lavaan)
+
+myModel <- '   # regressions
+                consider ~ image + value
+
+               # latent variable definitions 
+
+                image =~ att_rating9 + att_rating6 + att_rating15
+
+                value =~ att_rating10 + att_rating11 + att_rating12 + att_rating13 + att_rating3 +                    att_rating21 + att_rating30 + att_rating31
+
+               # variances and covariances'
+```
+
+
+```{r}
+fit <- sem(myModel,
+           data=model_data)
+summary(fit)
+```
+
+It appears that even with fewer parameters, the strucutral equation model was not a good fit. 
+
+#### Fitting the SEM Model from Class-Dataset with Fewer Parameters 
+
+```{r}
+class_data <- read.delim("/Users/Monu/Desktop/Marketing Analytics/A4/bsdata.class.2.txt", header = TRUE,sep = " ", dec = ",")
+
+head(class_data)
+```
+
+
+```{r}
+require(lavaan)
+
+myModel <- '   # regressions
+                Consider ~ Image + Value
+
+               # latent variable definitions 
+
+                Image =~ Trustworthy + Prestigious + Leader
+
+                Value =~ Cares + GoodValue + MeetNeeds
+               
+               # variances and covariances
+                Trustworthy ~~ Trustworthy
+                Prestigious ~~ Prestigious
+                Leader ~~ Leader 
+                GoodValue ~~ GoodValue
+                MeetNeeds ~~ MeetNeeds
+                Cares~~Cares'
+```
+
+
+```{r}
+fit <- sem(myModel,
+           data=class_data)
+summary(fit)
+```
+
+## 2. Linear and Mixed Model
+
+All attribute questions will be treated as categorical variables.
+
+```{r}
+model_data <- clean_data[,c(1,2,3,5,7,8:38)]
+model_data[,6:36] <- lapply(model_data[,6:36],as.factor)
+```
+
+**Linear Model for Comparison Purposes**
+
+```{r}
+summary(lm(consider ~ . -respid - brandid,data=model_data))
+```
+
+Since this model has a low R-Squared, a Mixed Model with Random Effects on the Respondent and the Brand will be tested next. 
+
+```{r}
+require('lme4')
+
+mixed_model <- lmer(consider ~ . -respid - brandid
+                    +(1|respid)
+                    +(1|brandid)
+                    ,data=model_data,control=lmerControl(optCtrl = list(maxfun=100000)))
+
+summary(mixed_model)
+```
+
+```{r}
+require('Metrics')
+
+#Model R-Squared
+cbind(R_Squared = (cor(predict(mixed_model),model_data$consider))^2,
+      RMSE = rmse(model_data$consider,predict(mixed_model)))
+```
+
+The overall R-Squared of the model is 0.65, and the RMSE is 1.67.
+
+## 3. Non-Parametric Models
+
+### Random Forest
+
+All attribute questions will be treated as categorical variables since there is no inherent order.
+
+```{r}
+
+model_data <- cbind(clean_data[,c(2,3,7)],clean_data[,8:38])
+
+model_data[4:34] <- lapply(model_data[4:34],as.factor)
+
+head(model_data)
+```
+
+```{r}
+require('randomForest')
+
+set.seed(2019)
+testInd = sample(nrow(model_data), nrow(model_data)/3)
+Train = model_data[-testInd,]
+Test = model_data[testInd,-3]
+y_test = model_data[testInd,3]
+
+```
+
+```{r}
+head(Train)
+```
+
+```{r}
+head(Test)
+```
+
+```{r}
+set.seed(2019)
+
+rf_model <- randomForest(consider~.,ntree=500, data=Train,importance=TRUE)
+print(rf_model)
+```
+
+```{r}
+varImpPlot(rf_model,type=1)
+```
+
+```{r}
+require('Metrics')
+
+#Metrics for the Model
+
+cbind(train_rmse = rmse(Train$consider,predict(rf_model)),
+      test_rmse = rmse(y_test,predict(rf_model,Test)))
+```
+
+```{r}
+cbind(train_R_squared = (cor(Train$consider,predict(rf_model)))^2,
+      test_R_squared  = (cor(y_test,predict(rf_model,Test)))^2)
+```
+
+**Conclusion:**
+
+From the Mixed Model Effects, we can see that there is a significant improvement in the model once the random effects from the respondent ID and brand ID are included. This shows that primarily preferences are driven by the respondent's own worldview as well as the brand itself. Furthermore, whether the brand is a primary or secondary choice for the user also plays a role in driving preferences.
+
+From the Random Forest Model, we can see that certain attribute questions (23, 15, 1, 6, 3, and 20) - drive the preference more than others.

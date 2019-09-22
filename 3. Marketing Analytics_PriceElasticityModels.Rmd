@@ -1,0 +1,307 @@
+---
+title: "Marketing Analytics Project 3 - Price Elasticity Models"
+output:
+  html_document:
+    df_print: paged
+---
+
+**Assignment 5: Competitive Analysis Via Price Elasticity Models.**
+
+1. Download the bayesm package in R.  It contains a dataset – “tuna”.  This data set contains the volume of canned tuna sales as well as a measure of display activity, log price and log wholesale prices. Weekly data are aggregated to the chain level. This data is extracted from the Dominick's Finer Foods database maintained by the Kilts center for marketing at the University of Chicago's Booth School of Business. Brands are seven of the top 10 UPCs in the canned tuna product category.
+
+2. Develop a competitive analysis map for the Canned Tuna category using price elasticity models. Remember – the models are “Client Deliverables”. Hence, your analysis must be robust, state of the art, and your presentation must be of professional standards that Businesses are used to. Build the models that you think you are comfortable presenting to key stakeholders.
+
+3. You can compute price elasticities of either sales or market share. State your rationale for   choosing either one.
+
+4. Discuss the limitations of your models.
+
+# Downloading and Exploring the Data
+
+```{r}
+require('bayesm')
+require('ggplot2')
+data(tuna)
+head(tuna)
+```
+
+```{r}
+names(tuna)
+```
+
+**Explanations of all the Variables:**
+
+$WEEK	a numeric vector
+$MOVE#	unit sales of brand #
+$NSALE#	a measure of display activity of brand #
+$LPRICE#	log of price of brand #
+$LWHPRIC#	log of wholesale price of brand #
+$FULLCUST	total customers visits
+
+The brands are:
+* 1.	Star Kist 6 oz.
+* 2.	Chicken of the Sea 6 oz.
+* 3.	Bumble Bee Solid 6.12 oz.
+* 4.	Bumble Bee Chunk 6.12 oz.
+* 5.	Geisha 6 oz.
+* 6.	Bumble Bee Large Cans.
+* 7.	HH Chunk Lite 6.5 oz.
+
+**Exploring Sales Over Time for Each Brand:**
+
+```{r}
+df <- cbind(x=tuna$WEEK, y=tuna[,grepl("MOVE",names(tuna))])
+```
+
+Time Series of Sales: 
+
+```{r}
+ggplot(df, aes(x, y = value, color = variable)) + 
+    geom_line(aes(y = y.MOVE1, col = "Brand 1")) + 
+    geom_line(aes(y = y.MOVE2, col = "Brand 2")) +
+    geom_line(aes(y = y.MOVE3, col = "Brand 3")) +
+    geom_line(aes(y = y.MOVE4, col = "Brand 4")) +
+    geom_line(aes(y = y.MOVE5, col = "Brand 5")) +
+    geom_line(aes(y = y.MOVE6, col = "Brand 6")) +
+    geom_line(aes(y = y.MOVE7, col = "Brand 7")) +
+    scale_x_continuous(name="Weeks", limits=c(0, 400)) +
+    scale_y_continuous(name="Unit Sales", limits=c(0, 50000))
+```
+
+To easily visualize sales trends: 
+
+```{r}
+ggplot(df, aes(x, y = value, color = variable)) + 
+    geom_smooth(aes(y = y.MOVE1, col = "Brand 1")) + 
+    geom_smooth(aes(y = y.MOVE2, col = "Brand 2")) +
+    geom_smooth(aes(y = y.MOVE3, col = "Brand 3")) +
+    geom_smooth(aes(y = y.MOVE4, col = "Brand 4")) +
+    geom_smooth(aes(y = y.MOVE5, col = "Brand 5")) +
+    geom_smooth(aes(y = y.MOVE6, col = "Brand 6")) +
+    geom_smooth(aes(y = y.MOVE7, col = "Brand 7")) +
+    scale_x_continuous(name="Weeks", limits=c(0, 400)) +
+    scale_y_continuous(name="Unit Sales", limits=c(0, 30000))
+```
+
+**Sales vs. Share Price Elasticities:**
+In the following steps, I will compute both sales and share price elasticities and compare the results. 
+
+# Computing "Sales" Price Elasticities
+
+```{r}
+log_prices_mat <- data.matrix(tuna[,grepl("LPRICE",names(tuna))])
+log_sales_mat <- apply(tuna[,grepl("MOVE",names(tuna))],2,log)
+colnames(log_sales_mat) <-c("LMOVE1","LMOVE2","LMOVE3","LMOVE4","LMOVE5","LMOVE6","LMOVE7")
+wholesale_logprices_mat <- data.matrix(tuna[,grepl("LWHPRIC",names(tuna))])
+advertising_mat <- data.matrix(tuna[,grepl("NSALE",names(tuna))])
+
+head(log_sales_mat)
+head(log_prices_mat)
+head(wholesale_logprices_mat)
+head(advertising_mat)
+```
+
+
+```{r}
+library(corrplot)
+library(RColorBrewer)
+cor_1<- cor(log_prices_mat,advertising_mat)
+corrplot(cor_1, type="upper", order="hclust",
+         col=brewer.pal(n=8, name="RdYlBu"))
+
+```
+
+Since the brand's own advertisements and brand displays are highly correlated with the brand's own price the brand's own display column will be dropped and only the other brand's NSALE columns will be used for the model. 
+
+```{r}
+library(corrplot)
+library(RColorBrewer)
+  cor_1<- cor(log_prices_mat,wholesale_logprices_mat)
+corrplot(cor_1, type="upper", order="hclust",
+         col=brewer.pal(n=8, name="RdYlBu"))
+```
+
+Since the log whole sale price and log price also tend to show correlations, only the *log prices* will be used in the model. 
+
+### Using Log Prices for Sales Price Elasticities
+
+```{r}
+#Calculating the Log Sales Price Elasticities
+#Removing the NSALES for the Brand itself because it is highly correlated with the Brand's Price
+
+summary(lm(log_sales_mat[,c(1)]~log_prices_mat+advertising_mat[,c(2,3,4,5,6,7)]))
+
+summary(lm(log_sales_mat[,c(2)]~log_prices_mat+advertising_mat[,c(1,3,4,5,6,7)]))
+
+summary(lm(log_sales_mat[,c(3)]~log_prices_mat+advertising_mat[,c(1,2,4,5,6,7)]))
+
+summary(lm(log_sales_mat[,c(4)]~log_prices_mat+advertising_mat[,c(1,2,3,5,6,7)]))
+
+summary(lm(log_sales_mat[,c(5)]~log_prices_mat+advertising_mat[,c(1,2,3,4,6,7)]))
+
+summary(lm(log_sales_mat[,c(6)]~log_prices_mat+advertising_mat[,c(1,2,3,4,5,7)]))
+
+summary(lm(log_sales_mat[,c(7)]~log_prices_mat+advertising_mat[,c(1,2,3,4,5,6)]))
+```
+
+# Computing "Share" Price Elasticities
+
+```{r}
+#Making a Sales Dataframe with Total Column
+sales_df <- tuna[,grepl("MOVE",names(tuna))]
+sales_df['total'] <- apply(sales_df,1,sum)
+head(sales_df)
+```
+
+```{r}
+#Getting a Dataframe for all Shares 
+shares_df <- sales_df[,grepl("MOVE",names(sales_df))]/sales_df[,'total']
+
+#Making a function for Geometric Mean
+geomMean<-function(values){
+  prod(values)^(1/length(values))
+}
+
+#Adding a Geometric Mean Column
+shares_df['geo_mean'] <- apply(shares_df,1,geomMean)
+head(shares_df)
+```
+
+*Final Log Centered Shares DataFrame:*
+
+```{r}
+log_centered_shares <- log(shares_df[,grepl("MOVE",names(shares_df))]/shares_df[,'geo_mean'])
+head(log_centered_shares)
+```
+
+**Making the Necessary Formulas for Log Price Manipulations:**
+
+* Formula Brand's Own Price: (1-1/n)*log(price1)
+
+* Formula Other Brand's Price: -1/n*log(price 2)
+
+```{r}
+#Making the formulas for Log Price Manipulations
+ownlogprice<-function(value){
+(1-(1/7)) * value
+}
+
+otherlogprice <- function(value){
+(-1/7) * value
+}
+```
+
+Creating New Dataframes for Log Prices where the formulas for "own brand price" and "other brand price" will be applied.
+
+```{r}
+log_prices_df <- tuna[,grepl("LPRICE",names(tuna))]
+
+own_log_price_df <- ownlogprice(log_prices_df)
+colnames(own_log_price_df)<-c("OWNLPRICE1","OWNLPRICE2","OWNLPRICE3","OWNLPRICE4","OWNLPRICE5","OWNLPRICE6","OWNLPRICE7")
+
+head(own_log_price_df)
+
+other_log_price_df <- otherlogprice(log_prices_df)
+colnames(other_log_price_df)<-c("OTHERLPRICE1","OTHERLPRICE2","OTHERLPRICE3","OTHERLPRICE4","OTHERLPRICE5","OTHERLPRICE6","OTHERLPRICE7")
+
+head(other_log_price_df)
+```
+
+```{r}
+#Creating 7 Share Price Elasticity Models
+brand_num <- c('1','2','3','4','5','6','7')
+
+for(i in brand_num){
+CENTERED_SHARE <- log_centered_shares[,grepl(i,names(log_centered_shares))]
+OWN_LOGPRICE  <- own_log_price_df[,grepl(i,names(own_log_price_df))]
+other_price <-other_log_price_df[,!grepl(i,names(other_log_price_df))]
+
+assign(paste("SHARE_MODEL", i, sep = ""),(lm(CENTERED_SHARE~OWN_LOGPRICE+data.matrix(other_price))))
+}
+```
+
+
+```{r}
+#Summary of all the Models
+
+summary(SHARE_MODEL1)
+
+summary(SHARE_MODEL2)
+
+summary(SHARE_MODEL3)
+
+summary(SHARE_MODEL4)
+
+summary(SHARE_MODEL5)
+
+summary(SHARE_MODEL6)
+
+summary(SHARE_MODEL7)
+```
+
+# Final Conclusions
+
+From the results above, it appears that the "sales" price elasticity models had better results because more of the cross price elasticities in that model are positive (which is expected - when a competitor increases the price, another competitor's sales should increase as a result). Thus, the **sales price elasticities** will be used in the discussion below. 
+
+
+### Final Results for Sales Price Elasticities
+
+**Statistically Signficant - Sale Price Elasticities Summary Table**
+![All statistically significant sale price elasticities are shown.](/Users/Monu/Desktop/Marketing Analytics/A5/sales_pe_final.png)
+*Any statistically significant, negative cross price elasticities are crossed out here because they will not be considered in the analysis.*
+
+
+**Competititve Analysis Map**
+![In this chart if the arrow from one brand is going to another it implies that a change in price from that brand affects the sales of the other brand.](/Users/Monu/Desktop/Marketing Analytics/A5/competitve map.png)
+
+**SUMMARY:**
+
+*Brand 1:*
+
+Brand 1's own price elasticity is -4.42%, which shows that its own customers are sensitive to its own price changes.
+
+If Brand 1 raises it's prices, it affects Brands 2, 3, 4, and 6 positively. While Brand 1's own sales are affected by the prices of Brands 2 and 4. This shows that Brand 1 competes with Brands 2 and 4 directly where the price changes on either side affect both brands. Brands 3 and 4 also compete with Brand 1, but Brand 1 itself is less sensitive to price changes from Brands 3 and 4. 
+
+*Brand 2:*
+
+Brand 2's own price elasticity is -5.09%, which shows that its own customers are sensitive to its own price changes.
+
+If Brand 2 raises it's prices, it affects Brands 1 positively. While Brand 2's own sales are affected by the changes in prices of Brands 1, 4, and 5. This shows that Brand 2 competes with Brands 1 directly where the price changes on either side affect both brands, however, only Brand 2 is affected by changes in prices for Brands 4 and 5.
+
+*Brand 3:*
+
+Brand 3's own price elasticity is -6.46%, which shows that its own customers are the *most* sensitive to its own price changes.
+
+If Brand 3 raises it's prices, it affects Brands 5 positively. While Brand 3's own sales are affected by the changes in prices of Brands 1 and 6. This shows that Brand 3 is sensitive to changes Brand 1 and 6 make, but the changes it makes in its own prices only affect Brand 5. 
+
+
+*Brand 4:*
+
+Brand 4's own price elasticity is -4.79%, which shows that its own customers are sensitive to its own price changes.
+
+If Brand 4 raises it's prices, it affects Brands 1 and 2 positively. While Brand 4's own sales are affected by the changes in prices of Brand 1 only. 
+
+
+*Brand 5:*
+
+Brand 5's own price elasticity is -5.21%, which shows that its own customers are sensitive to its own price changes.
+
+If Brand 5 raises it's prices, it affects Brands 2 positively. While Brand 5's own sales are affected by the changes in prices of Brands 3. 
+
+*Brand 6:*
+
+Brand 6's own price elasticity is -2.21%, which shows that its own customers are the least sensitive to its own price changes.
+
+If Brand 6 raises it's prices, it affects Brands 3 positively and this affect is the largest (+4.72%). While Brand 6's own sales are affected by the changes in prices of Brands 1. 
+
+*Brand 7:*
+
+Brand 7's own price elasticity is -3.44%, which shows that its own customers are sensitive to its own price changes.
+
+Brand 7's prices aren't affecting other brands, and the other Brand's prices also don't affect Brand 7, which implies that Brand 7 may not be competing with any of the other brands directly.  
+
+
+
+
+
+
+
